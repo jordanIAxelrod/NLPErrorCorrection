@@ -71,15 +71,20 @@ class CharacterEmbedding(ErrorCorrectionEmbedding):
             )
             self.embed_dim = embed_dim
             self.embed = nn.TransformerEncoder(embed_layer, 1)
-            self.linear = nn.Linear(num_chars, embed_dim)
+
         else:
             self.embed = nn.LSTM(
                 num_chars,
-                embed_dim,
+                num_chars,
+                num_layers=1,
                 bidirectional=True,
                 batch_first=True
             )
-
+        self.head = nn.Sequential(
+            nn.Linear(num_chars, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim)
+        )
     def _make_mask(self, x):
         mask = self.embed_dim - torch.sum(x == torch.zeros(self.embed_dim), dim=-1)
 
@@ -113,6 +118,7 @@ class CharacterEmbedding(ErrorCorrectionEmbedding):
 
             else:
                 X = self.embed(X)
+            X = self.head(X)
             X = torch.sum(X, dim=1)
             embeddings.append(X)
 
