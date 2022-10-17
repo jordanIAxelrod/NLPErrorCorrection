@@ -7,7 +7,11 @@ of words that are not possible to get to from the presented corrupt word.
 """
 import torch.cuda
 import torch.nn as nn
-import CharTransformer, BiLSTMErrorCorrection, CELWithPossibilityRegularization, EmbeddingTypes
+import torch.optim as optim
+
+import os
+from CELWithLevenshteinRegularization import CELWithLevenshteinRegularization
+import CharTransformer, BiLSTMErrorCorrection, EmbeddingTypes
 import TextPreprocess
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -20,7 +24,7 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
             optimizer.zero_grad()
             pred = model(X)
 
-            y = [[ids_word(word) for word in sentance] for sentance in y]
+            y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in y]
 
             y = torch.LongTensor(y).to(device)
 
@@ -38,7 +42,7 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
 
                 pred = model(X)
 
-                y = [[ids_word(word) for word in sentance] for sentance in y]
+                y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in y]
                 y = torch.LongTensor(y).to(device)
 
                 pred = torch.argmax(pred, dim=-1)
@@ -57,11 +61,65 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
     return model
 
 
-def train_background(model_type):
-    num_words = TextPreprocess.background_num_words
-    embedding = EmbeddingTypes.OuterPosBow(' -_')
-    if model_type.lower() == 'bilstm':
-        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 198, 50)
+def train_model(model_type, is_foreground):
+
+
+
+
+    cwd = os.getcwd()
+    os.chdir('data')
+    if is_foreground:
+        words = TextPreprocess.vocab('foreground')
+        num_words = len(words)
+        name = model_type + '_foreground'
+        if'stanford_train_loader.pt' in os.listdir() and 'stanford_val_loader.pt' in os.listdir():
+            train_loader = 'stanford_train_loader.pt'
+            val_loader = 'stanford_val_loader.pt'
+            loaders_present = True
+        else:
+            type = 'stanford'
+            loaders_present = False
     else:
-        model = CharTransformer.ErrorCorrector(embedding, num_words, )
+        words = TextPreprocess.vocab('background')
+        num_words = len(words)
+        name = model_type + '_background'
+        if 'imdb_train_loader' in os.listdir() and 'imdb_train_loader' in os.listdir():
+            train_loader = 'imdb_train_loader'
+            val_loader = 'imdb_val_loader'
+            loaders_present = True
+        else:
+            type = 'imdb'
+            loaders_present = False
+
+    if model_type.lower() == 'bilstm':
+        embedding = EmbeddingTypes.OuterPosBow(' -_', 50)
+        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 198, 50)
+        loss_function = CELWithLevenshteinRegularization(words, 0.01, 1)
+    else:
+        embedding = EmbeddingTypes.OuterPosBow(' -_', 16*4)
+        model = CharTransformer.ErrorCorrector(embedding, num_words, 16*4)
+
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    if loaders_present:
+        train_loader = torch.load(train_loader)
+        val_loader = torch.load(val_loader)
+    else:
+        train_loader, val_loader = TextPreprocess.create_dataloaders(type)
+    os.chdir(cwd)
+    trained_model = train(
+        model,
+        optimizer,
+        30,
+        train_loader,
+        val_loader,
+        loss_function,
+        name
+    )
+
+
+if __name__ == '__main__':
+    for model_type in ('transformer', 'bilstm'):
+        for is_foreground in (True, False):
+            train_model(model_type, is_foreground)
 
