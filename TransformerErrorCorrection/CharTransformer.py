@@ -21,6 +21,7 @@ class ErrorCorrector(nn.module):
             nn.Linear(num_words // 2, num_words),
             nn.Softmax(dim=2)
         )
+
     def forward(self, sntcs: list) -> torch.Tensor:
         X = self.embed(sntcs)
         X = self.transformer(X)

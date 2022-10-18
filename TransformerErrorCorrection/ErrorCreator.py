@@ -2,12 +2,6 @@ import random
 import os
 import json
 
-if "QWERTY.json" in os.listdir():
-    with open("QWERTY.json", r) as f:
-        qwerty = json.load(f)
-else:
-    qwerty = create_qwerty_adjacents()
-
 
 def create_qwerty_adjacents():
     qwerty = {
@@ -42,14 +36,7 @@ def create_qwerty_adjacents():
     return qwerty
 
 
-def random_change(word: str, type_change: int = None, num_changes: int = 1):
-    if len(word) < 4:
-        return word
-    char_to_change = random.randint(1, len(word) - 1)
-
-    if not type_change:
-        type_change = random.randint(0, 4)
-
+def change(type_change, char_to_change, word, choice):
     if type_change == 0:
         # Swap adjacent characters
         if char_to_change == 1:
@@ -57,7 +44,10 @@ def random_change(word: str, type_change: int = None, num_changes: int = 1):
         elif char_to_change == len(word) - 2:
             next_char = -1
         else:
-            next_char = random.choice([-1, 1])
+            if not choice:
+                next_char = random.choice([-1, 1])
+            else:
+                next_char = choice
         corrupt_word = word[: char_to_change] + word[char_to_change + next_char] + word[char_to_change + 1:]
         corrupt_word = corrupt_word[: char_to_change + next_char] + word[
             char_to_change] + corrupt_word[char_to_change + next_char + 1:]
@@ -66,15 +56,51 @@ def random_change(word: str, type_change: int = None, num_changes: int = 1):
         corrupt_word = word[: char_to_change] + word[char_to_change + 1:]
     elif type_change == 2:
         # Add a character
-        corrupt_word = word[:char_to_change] + random.choice('12345657890qwertyuiopasdfghjklzxcvbnm') + word[
-                                                                                                        char_to_change:]
+        if not choice:
+            add_char = random.choice('12345657890qwertyuiopasdfghjklzxcvbnm')
+        else:
+            add_char = choice
+
+        corrupt_word = word[:char_to_change] + add_char + word[
+                                                          char_to_change:]
     else:
         # substitute with an adjacent character
-        replace = qwerty[word[char_to_change]]
-        corrupt_word = word[:char_to_change] + random.choice(replace) + word[char_to_change + 1:]
+        if not choice:
+            replace = random.choice(qwerty[word[char_to_change]])
+        else:
+            replace = choice
+        corrupt_word = word[:char_to_change] + replace + word[char_to_change + 1:]
+    return corrupt_word
+
+
+def random_change(word: str, type_change: int = None, num_changes: int = 1):
+    if len(word) < 4:
+        return word
+    char_to_change = random.randint(1, len(word) - 1)
+
+    if not type_change:
+        type_change = random.randint(0, 4)
+
+    corrupt_word = change(type_change, char_to_change, word, None)
+    if num_changes == 2:
+        if len(corrupt_word) < 4:
+            return corrupt_word
+        char_to_change = random.randint(1, len(corrupt_word) - 1)
+
+        if not type_change:
+            type_change = random.randint(0, 4)
+        corrupt_word = change(type_change, char_to_change, corrupt_word, None)
     return corrupt_word
 
 
 def corrupt_sentence(sentence, type_change: int = None, num_changes: int = 1):
     return ' '.join(random_change(word, type_change, num_changes) for word in sentence.split(' '))
 
+
+def get_qwerty():
+    if "QWERTY.json" in os.listdir():
+        with open("QWERTY.json", 'r') as f:
+            qwerty = json.load(f)
+    else:
+        qwerty = create_qwerty_adjacents()
+    return qwerty
