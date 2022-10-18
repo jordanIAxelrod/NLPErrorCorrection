@@ -5,6 +5,7 @@ import EmbeddingTypes
 import torch.nn as nn
 import torch
 
+
 class BiLSTM(nn.Module):
 
     def __init__(self, embedding: EmbeddingTypes.ErrorCorrectionEmbedding, num_words: int, embed_dim, hidden_dim):
@@ -31,4 +32,3 @@ class BiLSTM(nn.Module):
         X = self.bilstm(X)
 
         return self.head(X)
-

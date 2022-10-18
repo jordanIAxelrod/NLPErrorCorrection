@@ -3,7 +3,7 @@ import torch.nn as nn
 import EmbeddingTypes
 
 
-class ErrorCorrector(nn.module):
+class ErrorCorrector(nn.Module):
     """
     This model takes sentences with errors in all words >4 characters long.
     It tries to map these incorrect words to the original. The embedding type

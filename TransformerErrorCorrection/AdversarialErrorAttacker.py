@@ -1,6 +1,8 @@
 from ErrorCreator import change, get_qwerty
 import random
 
+import torch.nn as nn
+
 
 def return_if(sentence, word_pos, corrupt_word, model, y):
     sentence[word_pos] = corrupt_word
@@ -9,7 +11,7 @@ def return_if(sentence, word_pos, corrupt_word, model, y):
         return ' '.join(sentence)
 
 
-def find_working_attack(sentence, y, word_pos, model, attack_type):
+def find_working_attack(sentence, y, word_pos, model: nn.Module, attack_type):
     sentence_list = sentence.split()
     word = sentence_list[word_pos]
 
@@ -17,7 +19,7 @@ def find_working_attack(sentence, y, word_pos, model, attack_type):
         qwerty = get_qwerty()
         base = model(sentence.unsqueeze(0)).squeeze()
         # assuming binary classification with two output variables
-        if base[y] > base[1 - y]:
+        if all(base[y] >= base):
             attack_modes = [0, 1, 2, 3]
             random.shuffle(attack_modes)
             for i in attack_modes:
@@ -49,6 +51,7 @@ def attack_swap(word, attack_type, sentence, word_pos, model, y):
             return_value = return_if(sentence, word_pos, corrupt_word, model, y)
             if return_value:
                 return return_value
+    return word
 
 
 def attack_drop(word, attack_type, sentence, word_pos, model, y):
@@ -57,6 +60,7 @@ def attack_drop(word, attack_type, sentence, word_pos, model, y):
         return_value = return_if(sentence, word_pos, corrupt_word, model, y)
         if return_value:
             return return_value
+    return word
 
 
 def attack_add(word, attack_type, sentence, word_pos, model, y):
@@ -66,6 +70,7 @@ def attack_add(word, attack_type, sentence, word_pos, model, y):
             return_value = return_if(sentence, word_pos, corrupt_word, model, y)
             if return_value:
                 return return_value
+    return word
 
 
 def attack_replace(word, attack_type, sentence, word_pos, model, y, qwerty):
@@ -75,3 +80,5 @@ def attack_replace(word, attack_type, sentence, word_pos, model, y, qwerty):
             return_value = return_if(sentence, word_pos, corrupt_word, model, y)
             if return_value:
                 return return_value
+    return word
+

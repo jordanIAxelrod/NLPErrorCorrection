@@ -1,4 +1,3 @@
-
 """
 This file trains the error correction models. We will start with the original paper, our baseline model. Then move to
 train our transformer model. For the transformer model we will use a custom loss that heavily punishes the predictions
@@ -11,12 +10,13 @@ import torch.optim as optim
 
 import os
 from CELWithLevenshteinRegularization import CELWithLevenshteinRegularization
-import CharTransformer, BiLSTMErrorCorrection, EmbeddingTypes
+import CharTransformer, BiLSTMErrorCorrection, EmbeddingTypes, ErrorCreator
 import TextPreprocess
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name):
 
+
+def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name):
     prev = 1
     for epoch in range(epochs):
         model.train()
@@ -38,11 +38,11 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
         model.eval()
         with torch.no_grad():
             all_correct = []
-            for i, (X, y) in enumerate(val_loader):
+            for i, X in enumerate(val_loader):
+                corrupts = [ErrorCreator.corrupt_sentence(example['review']) for example in X]
+                pred = model(corrupts)
 
-                pred = model(X)
-
-                y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in y]
+                y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in X]
                 y = torch.LongTensor(y).to(device)
 
                 pred = torch.argmax(pred, dim=-1)
@@ -62,42 +62,46 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
 
 
 def train_model(model_type, is_foreground):
-
-
-
-
     cwd = os.getcwd()
-    os.chdir('data')
+    print(cwd)
+    os.chdir('..')
     if is_foreground:
+        TextPreprocess.create_dictionary('stanford')
+        print(TextPreprocess.word_type2idx)
         words = TextPreprocess.vocab('foreground')
         num_words = len(words)
         name = model_type + '_foreground'
-        if'stanford_train_loader.pt' in os.listdir() and 'stanford_val_loader.pt' in os.listdir():
+        if 'stanford_train_loader.pt' in os.listdir() and 'stanford_val_loader.pt' in os.listdir():
             train_loader = 'stanford_train_loader.pt'
             val_loader = 'stanford_val_loader.pt'
             loaders_present = True
         else:
-            type = 'stanford'
+            typ = 'stanford'
             loaders_present = False
     else:
+        TextPreprocess.create_dictionary('imdb')
+        print(word_type2idx)
         words = TextPreprocess.vocab('background')
         num_words = len(words)
         name = model_type + '_background'
+        os.chdir('../data')
+
         if 'imdb_train_loader' in os.listdir() and 'imdb_train_loader' in os.listdir():
             train_loader = 'imdb_train_loader'
             val_loader = 'imdb_val_loader'
             loaders_present = True
         else:
-            type = 'imdb'
+            typ = 'imdb'
             loaders_present = False
-
+        os.chdir(cwd)
     if model_type.lower() == 'bilstm':
-        embedding = EmbeddingTypes.OuterPosBow(' -_', 50)
+        embedding = EmbeddingTypes.OuterPosBow(' ', 50)
         model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 198, 50)
         loss_function = CELWithLevenshteinRegularization(words, 0.01, 1)
     else:
-        embedding = EmbeddingTypes.OuterPosBow(' -_', 16*4)
-        model = CharTransformer.ErrorCorrector(embedding, num_words, 16*4)
+        embedding = EmbeddingTypes.OuterPosBow(' ', 16 * 4)
+        model = CharTransformer.ErrorCorrector(embedding, num_words, 16 * 4)
+        loss_function = nn.CrossEntropyLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -105,8 +109,9 @@ def train_model(model_type, is_foreground):
         train_loader = torch.load(train_loader)
         val_loader = torch.load(val_loader)
     else:
-        train_loader, val_loader = TextPreprocess.create_dataloaders(type)
+        train_loader, _, val_loader = TextPreprocess.create_dataloaders(typ, 128)
     os.chdir(cwd)
+
     trained_model = train(
         model,
         optimizer,
@@ -122,4 +127,3 @@ if __name__ == '__main__':
     for model_type in ('transformer', 'bilstm'):
         for is_foreground in (True, False):
             train_model(model_type, is_foreground)
-

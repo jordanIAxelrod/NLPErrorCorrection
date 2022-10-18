@@ -5,31 +5,59 @@ import json
 
 def create_qwerty_adjacents():
     qwerty = {
-        'q': '12wsa',
+        'q': '12!@wsa',
         'a': 'qwsxz',
         'z': 'asx',
-        'w': '123qeasd',
+        'w': '123!@#qeasd',
         's': 'qweadzxc',
         'x': 'zasdc',
-        'e': '234wrsdf',
+        'e': '234@#$wrsdf',
         'd': 'wersfxcv',
         'c': 'xsdfv',
-        'r': '345etdfg',
+        'r': '345#$%etdfg',
         'f': 'ertdgcvb',
         'v': 'dfgcb',
-        't': '456ryfgh',
+        't': '456$%^ryfgh',
         'g': 'rtyfhvbn',
         'b': 'vfghn',
-        'y': '567tughj',
+        'y': '567%^&tughj',
         'h': 'tyugjbnm',
+        'n': 'bghjm',
+        'u': 'hy6^7&8*ik',
         'j': 'yuihknm',
         'm': 'nhjk',
-        'i': '789uojkl',
+        'i': '789&*(uojkl',
         'k': 'uiojlm',
-        'o': '890ipkl',
+        'o': '890*()ipkl',
         'l': 'lkiop',
-        'p': '09pol'
+        'p': '09()pol',
+        ',': 'mkl.',
+        '.': ',l;/',
+        '/': '.;',
+        '1': 'qw2!',
+        '!': '12wq',
+        '2': '@1!qwe#3',
+        '@': '!12#3qwe',
+        '3': '#@24$wer',
+        '#': '@23$4wer',
+        '5': '4$rty6^',
+        '%': '5$4rty6^',
+        '6': '%5tyu7&^',
+        '^': "65%7&tyu",
+        '7': '6^yui*8&',
+        '&': '6^yui8*7',
+        '8': '*7uio9&(',
+        '*': '7&uio(9',
+        '9': '(8*iop0)',
+        '(': '9*8iop)0',
+        '0': ')9(op[{-_',
+        '-': '_0)p[{]}=+',
+        '"': ";:p{[}]/?",
+        "'": '";.:>/?[{]}'
     }
+    for key in qwerty.keys():
+        if key.isalpha():
+            qwerty[key.upper()] = qwerty[key].upper()
     with open('QWERTY.json', 'w') as f:
         json.dump(qwerty, f)
 
@@ -37,6 +65,7 @@ def create_qwerty_adjacents():
 
 
 def change(type_change, char_to_change, word, choice):
+    qwerty = get_qwerty()
     if type_change == 0:
         # Swap adjacent characters
         if char_to_change == 1:
@@ -66,7 +95,14 @@ def change(type_change, char_to_change, word, choice):
     else:
         # substitute with an adjacent character
         if not choice:
-            replace = random.choice(qwerty[word[char_to_change]])
+            try:
+                replace = random.choice(qwerty[word[char_to_change]])
+            except KeyError:
+                char_to_change2 = random.randint(1, len(word) - 1)
+                if char_to_change2 == char_to_change:
+                    replace = 'g'
+                else:
+                    replace = random.randint(1, len(word) - 1)
         else:
             replace = choice
         corrupt_word = word[:char_to_change] + replace + word[char_to_change + 1:]

@@ -4,40 +4,52 @@ This file creates and saves a corrupted version of the input.
 """
 import torch
 from collections import defaultdict, Counter, OrderedDict
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import ErrorCreator
+import datasets
+
 ## Data setup. Please do NOT change any of this.
-nerdata = datasets.load_dataset("conll2003")
+word_type2idx = None
+char_type2idx = None
 
-# get label types and indices
-label_types = nerdata["train"].features["ner_tags"].feature.names
-label_type2idx = {labeltype: i for i, labeltype in enumerate(label_types)}
+def create_dictionary(typ):
+    if type == 'imdb':
+        data = pd.read_csv('IMDB/IMDB Dataset.csv')
+    else:
+        data = pd.read_csv('stanfordSentimentTreebank/datasetSentences.txt', sep='\t')
+    data.rename({'sentence': 'review'}, inplace=True, axis=1)
 
-# get word types and indices
-min_freq = 2 # any word occuring < min_freq times gets <unk>ed
-word_counter = Counter()
-char_counter = Counter
-for example in nerdata["train"]:
-    word_counter.update(example["tokens"])
-    char_counter.update(' '.join(example['tokens']))
-word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()
-                          if wcount >= min_freq]
-word_type2idx = {wordtype: i for i, wordtype in enumerate(word_types)}
+    data = datasets.Dataset.from_pandas(data)
+
+
+    # get word types and indices
+    min_freq = 2  # any word occuring < min_freq times gets <unk>ed
+    word_counter = Counter()
+    char_counter = Counter()
+    for example in data:
+        word_counter.update(example["review"].split())
+        char_counter.update(example['review'])
+    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()
+                              if wcount >= min_freq]
+    char_types = ["<unk>"] + [ctype for (ctype, ccount) in char_counter.most_common()]
+    char_type2idx = {chartype: i for i, chartype in enumerate(char_types)}
+    word_type2idx = {wordtype: i for i, wordtype in enumerate(word_types)}
+
 
 def ids_word(word):
     return word_type2idx[word] if word in word_type2idx else word_type2idx["<unk>"]
 
-print("labels", label_types, "(total", len(label_types), ")")
-print("using a vocabulary of size", len(word_types))
 
-# only keep the tokens and ner tags.
-trdata, valdata = nerdata["train"], nerdata["validation"]
-trdata.set_format(columns=['tokens', 'ner_tags'])
-valdata.set_format(columns=['tokens', 'ner_tags'])
+def ids_char(char):
+    return char_type2idx[char] if char in char_type2idx else char_type2idx["<unk>"]
+
 
 def collate(batchdictseq):
     batchdict = batchdictseq[0]
-    wordseqs = torch.LongTensor([[word2idx(word) for word in wordlist] # batchsize x M
+    wordseqs = torch.LongTensor([[ids_word(word) for word in wordlist]  # batchsize x M
                                  for wordlist in batchdict['tokens']])
-    tgtseqs = torch.LongTensor(batchdict["ner_tags"]) # these are already indices
+    tgtseqs = torch.LongTensor(batchdict["ner_tags"])  # these are already indices
     return wordseqs, tgtseqs
 
 
@@ -64,12 +76,13 @@ class ByLengthSampler(torch.utils.data.Sampler):
     Allows for sampling minibatches of examples all of the same sequence length;
     adapted from https://discuss.pytorch.org/t/tensorflow-esque-bucket-by-sequence-length/41284/13.
     """
+
     def __init__(self, dataset, key, batchsize, shuffle=True):
         # import ipdb
         # ipdb.set_trace()
         self.batchsize = batchsize
         self.shuffle = shuffle
-        self.seqlens = torch.LongTensor([len(example[key]) for example in dataset])
+        self.seqlens = torch.LongTensor([len(example[key].split(' ')) for example in dataset])
         self.nbatches = len(self._generate_batches())
 
     def _generate_batches(self):
@@ -103,10 +116,12 @@ class ByLengthSampler(torch.utils.data.Sampler):
         for batch in batches:
             yield batch
 
+
 class SingletonSampler(torch.utils.data.Sampler):
     """
     Samples data one by one. To be used for test data.
     """
+
     def __init__(self, dataset):
         self.nbatches = sum([1 for _ in dataset])
 
@@ -121,8 +136,45 @@ class SingletonSampler(torch.utils.data.Sampler):
             yield [i]
 
 
-def ids_word(word):
-    pass
+def create_dataloaders(type, batchsize):
+    if type == 'imdb':
+        data = pd.read_csv('IMDB/IMDB Dataset.csv')
+    else:
+        data = pd.read_csv('stanfordSentimentTreebank/datasetSentences.txt', sep='\t')
+    data.rename({'sentence': 'review'}, inplace=True)
 
-def ids_char(char):
-    pass
+    train, rest = train_test_split(data, test_size=.3, random_state=0)
+    test, val = train_test_split(rest, test_size=.5, random_state=0)
+    train = datasets.Dataset.from_pandas(train)['train']
+    test = datasets.Dataset.from_pandas(test)['train']
+    val = datasets.Dataset.from_pandas(val)['train']
+    train_loader = torch.utils.data.DataLoader(train, batch_size=1,
+                                               sampler=ByLengthSampler(train, 'tokens', batchsize, shuffle=True),
+                                               collate_fn=collate)
+    test_loader = torch.utils.data.DataLoader(test, batch_size=1,
+                                              sampler=ByLengthSampler(test, 'tokens', batchsize, shuffle=True),
+                                              collate_fn=collate)
+    val_loader = torch.utils.data.DataLoader(val, batch_size=1,
+                                             sampler=ByLengthSampler(val, 'tokens', batchsize, shuffle=True),
+                                             collate_fn=collate)
+    return train_loader, val_loader, test_loader
+
+
+def vocab(param):
+    if param == 'foreground':
+        data = pd.read_csv('stanfordSentimentTreebank/datasetSentences.txt', sep='\t')
+    else:
+        data = pd.read_csv('IMDB/IMDB Dataset.csv')
+
+    data.rename({'sentence': 'reviews'}, inplace=True)
+
+    data['review'] = data.review.apply(lambda x: x.split())
+    word_counter = Counter()
+    char_counter = Counter()
+    for example in data:
+        word_counter.update(example["reviews"])
+        char_counter.update(' '.join(example['reviews']))
+    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()]
+    char_types = ["<unk>"] + [ctype for (ctype, ccount) in char_counter.most_common()]
+
+    return word_types
