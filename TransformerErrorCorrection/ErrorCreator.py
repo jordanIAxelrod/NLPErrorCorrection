@@ -55,7 +55,8 @@ def create_qwerty_adjacents():
         '"': ";:p{[}]/?",
         "'": '";.:>/?[{]}'
     }
-    for key in qwerty.keys():
+    key_list = list(qwerty.keys())
+    for key in key_list:
         if key.isalpha():
             qwerty[key.upper()] = qwerty[key].upper()
     with open('QWERTY.json', 'w') as f:
@@ -77,6 +78,7 @@ def change(type_change, char_to_change, word, choice):
                 next_char = random.choice([-1, 1])
             else:
                 next_char = choice
+
         corrupt_word = word[: char_to_change] + word[char_to_change + next_char] + word[char_to_change + 1:]
         corrupt_word = corrupt_word[: char_to_change + next_char] + word[
             char_to_change] + corrupt_word[char_to_change + next_char + 1:]
@@ -98,11 +100,8 @@ def change(type_change, char_to_change, word, choice):
             try:
                 replace = random.choice(qwerty[word[char_to_change]])
             except KeyError:
-                char_to_change2 = random.randint(1, len(word) - 1)
-                if char_to_change2 == char_to_change:
-                    replace = 'g'
-                else:
-                    replace = random.randint(1, len(word) - 1)
+
+                replace = 'g'
         else:
             replace = choice
         corrupt_word = word[:char_to_change] + replace + word[char_to_change + 1:]
@@ -112,7 +111,7 @@ def change(type_change, char_to_change, word, choice):
 def random_change(word: str, type_change: int = None, num_changes: int = 1):
     if len(word) < 4:
         return word
-    char_to_change = random.randint(1, len(word) - 1)
+    char_to_change = random.randint(1, len(word) - 2)
 
     if not type_change:
         type_change = random.randint(0, 4)
@@ -121,7 +120,7 @@ def random_change(word: str, type_change: int = None, num_changes: int = 1):
     if num_changes == 2:
         if len(corrupt_word) < 4:
             return corrupt_word
-        char_to_change = random.randint(1, len(corrupt_word) - 1)
+        char_to_change = random.randint(1, len(corrupt_word) - 2)
 
         if not type_change:
             type_change = random.randint(0, 4)

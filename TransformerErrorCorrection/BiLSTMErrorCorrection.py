@@ -21,14 +21,14 @@ class BiLSTM(nn.Module):
         )
 
         self.head = nn.Sequential(
-            nn.Linear(hidden_dim, num_words // 2),
+            nn.Linear(hidden_dim * 2, num_words // 2),
             nn.ReLU(),
             nn.Linear(num_words // 2, num_words),
             nn.Softmax(dim=2)
         )
 
+
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         X = self.embed(X)
-        X = self.bilstm(X)
-
+        X = self.bilstm(X)[0]
         return self.head(X)
