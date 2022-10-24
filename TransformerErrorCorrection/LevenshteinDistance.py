@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
 
 class DamerauLevenshtein(nn.Module):
 
@@ -18,12 +19,12 @@ class DamerauLevenshtein(nn.Module):
         self.num_words = self.words.shape[0]
         self.word_lengths = word_lengths
         self.max_len = torch.max(word_lengths)
-        self.word_lenghts_arranged = torch.Tensor([
+        self.word_lengths_arranged = torch.Tensor([
             [i if i < self.word_lengths[j] else 0 for i in range(self.max_len)]
             for j in range(self.word_lengths.shape[0])
         ]).to(device)
         print(num_chars)
-        self.da = F.pad(torch.zeros(num_chars).to(device), (2,0))
+        self.da = F.pad(torch.zeros(num_chars).to(device), (2, 0))
 
     def _total_combination_eq(self, x, y):
         """
@@ -47,15 +48,13 @@ class DamerauLevenshtein(nn.Module):
         between each word in the sequence and every word in the list
             Shape: `(bsz, seq_len, num_words)
         """
-        sequence_word_lengths = x.argmin(dim=-1)
-        print(1)
+        m, sequence_word_lengths = x.min(dim=-1)
+
         bsz, seq, max_len = x.shape
         assert max_len == self.max_len, "Size of the character paddings don't match"
-        d = torch.zeros(bsz, seq, self.num_words, max_len + 1, max_len + 1).to(device)
+        d = torch.zeros(bsz, seq, self.num_words, max_len + 2, max_len + 2).to(device)
         max_dist = sequence_word_lengths.unsqueeze(-1).expand(-1, -1, self.num_words) + self.word_lengths
-        print(2)
-        d[:, :, :, 1, 1:] = self.word_lenghts_arranged
-        print(sequence_word_lengths)
+        d[:, :, :, 1, 2:] = self.word_lengths_arranged
         seq_word_len = torch.cat([
             torch.nn.utils.rnn.pad_packed_sequence(
                 torch.nn.utils.rnn.pack_sequence(
@@ -66,23 +65,21 @@ class DamerauLevenshtein(nn.Module):
             )[0].unsqueeze(0)
             for sequence in sequence_word_lengths
         ], dim=0)
-        print(seq_word_len.device)
 
-        d[:, :, :, 1:, 1] = seq_word_len.unsqueeze(2)
+        d[:, :, :, 2:, 1] = seq_word_len.unsqueeze(2)
         d[:, :, :, 0] = max_dist.unsqueeze(-1)
         d[:, :, :, :, 0] = max_dist.unsqueeze(-1)
-        for i in range(2, max_len + 1):
+        for i in range(1, max_len + 1):
             db = torch.zeros(bsz, seq, self.num_words).to(device)
-            for j in range(2, max_len + 1):
+            for j in range(1, max_len + 1):
                 k = self.da[self.words[:, j - 2].long()]
 
                 k_idx = k.reshape(1, 1, self.num_words, 1) \
                     .expand(bsz, seq, self.num_words, 1) \
                     .long()
-
-                l = torch.clone(db)
-                l_idx = l.reshape(bsz, seq, self.num_words, 1, 1) \
-                    .expand(bsz, seq, self.num_words, max_len, 1) \
+                l = db.clone()
+                l_idx = db.reshape(bsz, seq, self.num_words, 1, 1) \
+                    .expand(bsz, seq, self.num_words, max_len + 2, 1) \
                     .long()
                 d_transpose = torch.gather(d, 4, l_idx).squeeze()
                 d_transpose = torch.gather(d_transpose, 3, k_idx).squeeze()

@@ -9,8 +9,8 @@ import torch.nn.functional as F
 from TextPreprocess import ids_char, ids_word
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(device)
-
+# print(device)
+# device = 'cpu'
 class ErrorCorrectionEmbedding(nn.Module):
     def __init__(self, stop_chars, embed_dim, input_dim):
         super(ErrorCorrectionEmbedding, self).__init__()

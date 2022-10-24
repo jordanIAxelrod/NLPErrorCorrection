@@ -9,9 +9,13 @@ from sklearn.model_selection import train_test_split
 import ErrorCreator
 import datasets
 import ErrorCreator
+import LevenshteinDistance
+
 ## Data setup. Please do NOT change any of this.
 textdata = {}
-
+prob = .5
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
 def create_dictionary(typ):
     if type == 'imdb':
         data = pd.read_csv('IMDB/IMDB Dataset.csv')
@@ -21,14 +25,14 @@ def create_dictionary(typ):
 
     data = datasets.Dataset.from_pandas(data)
 
-
     # get word types and indices
     min_freq = 2  # any word occuring < min_freq times gets <unk>ed
     word_counter = Counter()
     char_counter = Counter()
     for example in data:
-        word_counter.update(example["review"].split())
-        char_counter.update(example['review'])
+        word_counter.update(example["review"].split(' '))
+        for word in example['review'].split(' '):
+            char_counter.update(word)
 
     for val in ErrorCreator.get_qwerty():
         char_counter.update(val)
@@ -36,6 +40,31 @@ def create_dictionary(typ):
     char_types = ["<unk>"] + [ctype for (ctype, ccount) in char_counter.most_common()]
     textdata['char_type2idx'] = {chartype: i for i, chartype in enumerate(char_types)}
     textdata['word_type2idx'] = {wordtype: i for i, wordtype in enumerate(word_types)}
+    textdata['word_lengths'] = torch.LongTensor([len(word) for word in textdata['word_type2idx'].keys()]).to(device)
+    textdata['max_len'] = max(textdata['word_lengths'])
+    textdata['word_tensor'] = character_break_down(list(textdata['word_type2idx'].keys())).squeeze().to(device)
+
+    textdata['levenshtein_distance'] = LevenshteinDistance.DamerauLevenshtein(
+        textdata['word_tensor'],
+        textdata['word_lengths'],
+        len(char_types)
+    ).to(device)
+
+
+def character_break_down(x: list) -> torch.Tensor:
+    """
+        gets a vectorized embedding of characters in words
+        :param x: list of seqences of words
+        :return: a 3d tensor containing an embedding of each word
+        """
+    sequences = torch.LongTensor([
+        [
+            [ids_char(seq) + 1 if i < len(word) else 0 for i in range(textdata['max_len'])]
+            for word in seq.split(' ')]
+        for seq in x
+    ])
+
+    return sequences
 
 
 def ids_word(word):
@@ -49,8 +78,12 @@ def ids_char(char):
 def collate(batchdictseq):
     batchdict = batchdictseq[0]
     wordseqs = [wordlist  # batchsize x M
-                                 for wordlist in batchdict['review']]
-    return wordseqs
+                for wordlist in batchdict['review']]
+    corrupt = list(zip(*[ErrorCreator.corrupt_sentence(sentence, prob) for sentence in wordseqs]))
+    levenshtein = textdata['levenshtein_distance'](character_break_down(corrupt[0]).to(device))
+    print(corrupt[0], list(textdata['word_type2idx'].keys()))
+    print(levenshtein[0, 2, 2])
+    return wordseqs, corrupt, levenshtein
 
 
 class FeaturizedDataset(torch.utils.data.Dataset):

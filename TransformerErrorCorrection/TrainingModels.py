@@ -14,8 +14,8 @@ from CELWithLevenshteinRegularization import CELWithLevenshteinRegularization
 import CharTransformer, BiLSTMErrorCorrection, EmbeddingTypes, ErrorCreator
 import TextPreprocess
 
-# device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device='cpu'
 
 def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name, num_words):
     prev = 1
@@ -23,7 +23,7 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
         model.train()
         for i, X in tqdm.tqdm(enumerate(train_loader), total=train_loader.sampler.batch_count()):
             optimizer.zero_grad()
-            corrupts = [ErrorCreator.corrupt_sentence(example) for example in X]
+            X, (corrupts, _), levenshtein = X
 
             pred = model(corrupts).reshape(-1, num_words)
 
@@ -31,7 +31,7 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
 
             y = torch.LongTensor(y).to(device).reshape(-1)
             if 'transformer' in model_name:
-                loss = loss_function(pred, y, corrupts)
+                loss = loss_function(pred, y, levenshtein)
             else:
                 loss = loss_function(pred, y)
 
@@ -43,7 +43,7 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
         with torch.no_grad():
             all_correct = []
             for i, X in enumerate(val_loader):
-                corrupts = [ErrorCreator.corrupt_sentence(example) for example in X]
+                X, (corrupts, corrupted), levenshtein = X
                 pred = model(corrupts)
 
                 y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in X]
