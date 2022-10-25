@@ -81,8 +81,8 @@ def collate(batchdictseq):
                 for wordlist in batchdict['review']]
     corrupt = list(zip(*[ErrorCreator.corrupt_sentence(sentence, prob) for sentence in wordseqs]))
     levenshtein = textdata['levenshtein_distance'](character_break_down(corrupt[0]).to(device))
-    print(corrupt[0], list(textdata['word_type2idx'].keys()))
-    print(levenshtein[0, 2, 2])
+    corrupt = torch.LongTensor(character_break_down(corrupt[0])), corrupt[1]
+    wordseqs = torch.LongTensor(character_break_down(wordseqs))
     return wordseqs, corrupt, levenshtein
 
 

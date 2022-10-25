@@ -33,24 +33,17 @@ class OuterPosBow(ErrorCorrectionEmbedding):
         self.num_chars = num_chars
         self.dim_add = embed_dim % 3
 
-    def forward(self, sntcs: list) -> torch.Tensor:
-        # Remove punctuation
-        word_lists = super().forward2(sntcs)
-        max_len = len(max([max(words, key=lambda x: len(x)) for words in word_lists]))
+    def forward(self, sntcs: torch.Tensor) -> torch.Tensor:
 
-        word_list = torch.LongTensor([
-            [
-                [ids_char(word[char]) if char < len(
-                    word) - 1 else self.num_chars + 1 if char < max_len - 1 else ids_char(
-                    word[-1]) for char in range(max_len)]
-                for word in word_list
-            ]
-            for word_list in word_lists
-        ])  # (bsz, seq_len, max_word)
-        word_list = F.one_hot(word_list, num_classes=self.num_chars)
+        word_lengths = torch.argmax(sntcs, dim=2)
+        ends = torch.gather(sntcs, 2, word_lengths.unsqueeze(2))
+        sntcs = torch.scatter(sntcs, 2, word_lengths.unsqueeze(2), 0)
+        sntcs[:, :, -1] = ends
+
+        word_list = F.one_hot(sntcs, num_classes=self.num_chars)[:, :, :, self.num_chars]
         word_list = self.embed(word_list)
-        bow = torch.sum(word_list[:, :, 1:-1], dim=2)
-        X = torch.cat([word_list[:, :, 0:1], bow, word_list[:, :, -1].unsqueeze(2)], dim=2).squeeze()
+        bow = torch.sum(word_list[:, :, 1:-1], dim=2).squeeze(2)
+        X = torch.cat([word_list[:, :, 0], bow, word_list[:, :, -1].unsqueeze(2)], dim=2).squeeze()
         return X
 
 
