@@ -24,13 +24,13 @@ class ErrorCorrectionEmbedding(nn.Module):
 
 
 class OuterPosBow(ErrorCorrectionEmbedding):
-    def __init__(self, stop_chars: str, embed_dim: int):
+    def __init__(self, stop_chars: str, embed_dim: int, num_chars):
         super().__init__(
             stop_chars,
             embed_dim // 3,
             num_chars
         )
-
+        self.num_chars = num_chars
         self.dim_add = embed_dim % 3
 
     def forward(self, sntcs: list) -> torch.Tensor:
@@ -41,27 +41,29 @@ class OuterPosBow(ErrorCorrectionEmbedding):
         word_lists = [[word.split for word in word_list] for word_list in word_lists]
         word_list = torch.LongTensor([
             [
-                [ids_char(word[char]) if char < len(word) - 1 else num_chars + 1 if char < max_len - 1 else ids_char(
+                [ids_char(word[char]) if char < len(
+                    word) - 1 else self.num_chars + 1 if char < max_len - 1 else ids_char(
                     word[-1]) for char in range(max_len)]
                 for word in word_list
             ]
             for word_list in word_lists
         ])  # (bsz, seq_len, max_word)
-        word_list = F.one_hot(word_list, num_classes=num_chars)
+        word_list = F.one_hot(word_list, num_classes=self.num_chars)
         word_list = self.embed(word_list)
-        bow = torch.sum(word_list[:, :, :, 1:-1], dim=-1)
+        bow = torch.sum(word_list[:, :, 1:-1], dim=2)
         X = torch.cat([word_list[:, :, 0:1], bow, word_list[:, :, -1].unsqueeze(2)], dim=2).squeeze()
         return X
 
 
 class CharacterEmbedding(ErrorCorrectionEmbedding):
-    def __init__(self, stop_chars: str, embed_dim, isTransformer: bool):
+    def __init__(self, stop_chars: str, embed_dim, isTransformer: bool, num_chars):
         super().__init__(
             stop_chars,
             embed_dim,
             num_chars
         )
         self.isTransformer = isTransformer
+        self.num_chars = num_chars
         if isTransformer:
             embed_layer = nn.TransformerEncoderLayer(
                 embed_dim,
@@ -85,6 +87,7 @@ class CharacterEmbedding(ErrorCorrectionEmbedding):
             nn.ReLU(),
             nn.Linear(embed_dim, embed_dim)
         )
+
     def _make_mask(self, x):
         mask = self.embed_dim - torch.sum(x == torch.zeros(self.embed_dim), dim=-1)
 
@@ -100,13 +103,13 @@ class CharacterEmbedding(ErrorCorrectionEmbedding):
             [
                 [ids_char(word[char])
                  if char < len(word)
-                 else num_chars + 1
+                 else self.num_chars + 1
                  for char in word]
                 for word in l]
             for l in word_list
         ]).to(device)
 
-        char_list = F.one_hot(char_list, num_classes=num_chars)
+        char_list = F.one_hot(char_list, num_classes=self.num_chars)
 
         embeddings = []
         for i in char_list.shape[1]:
