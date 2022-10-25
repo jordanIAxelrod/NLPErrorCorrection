@@ -8,11 +8,14 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import ErrorCreator
 import datasets
+import ErrorCreator
+import LevenshteinDistance
 
 ## Data setup. Please do NOT change any of this.
-word_type2idx = None
-char_type2idx = None
-
+textdata = {}
+prob = .5
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
 def create_dictionary(typ):
     if type == 'imdb':
         data = pd.read_csv('IMDB/IMDB Dataset.csv')
@@ -22,35 +25,65 @@ def create_dictionary(typ):
 
     data = datasets.Dataset.from_pandas(data)
 
-
     # get word types and indices
     min_freq = 2  # any word occuring < min_freq times gets <unk>ed
     word_counter = Counter()
     char_counter = Counter()
     for example in data:
-        word_counter.update(example["review"].split())
-        char_counter.update(example['review'])
-    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()
-                              if wcount >= min_freq]
+        word_counter.update(example["review"].split(' '))
+        for word in example['review'].split(' '):
+            char_counter.update(word)
+
+    for val in ErrorCreator.get_qwerty():
+        char_counter.update(val)
+    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()][:10000]
     char_types = ["<unk>"] + [ctype for (ctype, ccount) in char_counter.most_common()]
-    char_type2idx = {chartype: i for i, chartype in enumerate(char_types)}
-    word_type2idx = {wordtype: i for i, wordtype in enumerate(word_types)}
+    textdata['char_type2idx'] = {chartype: i for i, chartype in enumerate(char_types)}
+    textdata['word_type2idx'] = {wordtype: i for i, wordtype in enumerate(word_types)}
+    textdata['word_lengths'] = torch.LongTensor([len(word) for word in textdata['word_type2idx'].keys()]).to(device)
+    textdata['max_len'] = max(textdata['word_lengths'])
+    textdata['word_tensor'] = character_break_down(list(textdata['word_type2idx'].keys())).squeeze().to(device)
+
+    textdata['levenshtein_distance'] = LevenshteinDistance.DamerauLevenshtein(
+        textdata['word_tensor'],
+        textdata['word_lengths'],
+        len(char_types)
+    ).to(device)
+
+
+def character_break_down(x: list) -> torch.Tensor:
+    """
+        gets a vectorized embedding of characters in words
+        :param x: list of seqences of words
+        :return: a 3d tensor containing an embedding of each word
+        """
+    sequences = torch.LongTensor([
+        [
+            [ids_char(seq) + 1 if i < len(word) else 0 for i in range(textdata['max_len'])]
+            for word in seq.split(' ')]
+        for seq in x
+    ])
+
+    return sequences
 
 
 def ids_word(word):
-    return word_type2idx[word] if word in word_type2idx else word_type2idx["<unk>"]
+    return textdata['word_type2idx'][word] if word in textdata['word_type2idx'] else textdata['word_type2idx']["<unk>"]
 
 
 def ids_char(char):
-    return char_type2idx[char] if char in char_type2idx else char_type2idx["<unk>"]
+    return textdata['char_type2idx'][char] if char in textdata['char_type2idx'] else textdata['char_type2idx']["<unk>"]
 
 
 def collate(batchdictseq):
     batchdict = batchdictseq[0]
-    wordseqs = torch.LongTensor([[ids_word(word) for word in wordlist]  # batchsize x M
-                                 for wordlist in batchdict['tokens']])
-    tgtseqs = torch.LongTensor(batchdict["ner_tags"])  # these are already indices
-    return wordseqs, tgtseqs
+    wordseqs = [wordlist  # batchsize x M
+                for wordlist in batchdict['review']]
+    corrupt = list(zip(*[ErrorCreator.corrupt_sentence(sentence, prob) for sentence in wordseqs]))
+    levenshtein = textdata['levenshtein_distance'](character_break_down(corrupt[0]).to(device))
+    print(corrupt[0], list(textdata['word_type2idx'].keys()))
+    print(levenshtein[0, 2, 2])
+    return wordseqs, corrupt, levenshtein
 
 
 class FeaturizedDataset(torch.utils.data.Dataset):
@@ -141,21 +174,21 @@ def create_dataloaders(type, batchsize):
         data = pd.read_csv('IMDB/IMDB Dataset.csv')
     else:
         data = pd.read_csv('stanfordSentimentTreebank/datasetSentences.txt', sep='\t')
-    data.rename({'sentence': 'review'}, inplace=True)
+    data.rename({'sentence': 'review'}, inplace=True, axis=1)
 
     train, rest = train_test_split(data, test_size=.3, random_state=0)
     test, val = train_test_split(rest, test_size=.5, random_state=0)
-    train = datasets.Dataset.from_pandas(train)['train']
-    test = datasets.Dataset.from_pandas(test)['train']
-    val = datasets.Dataset.from_pandas(val)['train']
+    train = datasets.Dataset.from_pandas(train)
+    test = datasets.Dataset.from_pandas(test)
+    val = datasets.Dataset.from_pandas(val)
     train_loader = torch.utils.data.DataLoader(train, batch_size=1,
-                                               sampler=ByLengthSampler(train, 'tokens', batchsize, shuffle=True),
+                                               sampler=ByLengthSampler(train, 'review', batchsize, shuffle=True),
                                                collate_fn=collate)
     test_loader = torch.utils.data.DataLoader(test, batch_size=1,
-                                              sampler=ByLengthSampler(test, 'tokens', batchsize, shuffle=True),
+                                              sampler=ByLengthSampler(test, 'review', batchsize, shuffle=True),
                                               collate_fn=collate)
     val_loader = torch.utils.data.DataLoader(val, batch_size=1,
-                                             sampler=ByLengthSampler(val, 'tokens', batchsize, shuffle=True),
+                                             sampler=ByLengthSampler(val, 'review', batchsize, shuffle=True),
                                              collate_fn=collate)
     return train_loader, val_loader, test_loader
 
@@ -166,15 +199,16 @@ def vocab(param):
     else:
         data = pd.read_csv('IMDB/IMDB Dataset.csv')
 
-    data.rename({'sentence': 'reviews'}, inplace=True)
-
-    data['review'] = data.review.apply(lambda x: x.split())
+    data.rename({'sentence': 'reviews'}, inplace=True, axis=1)
+    print(data)
+    data['reviews'] = data.reviews.apply(lambda x: x.split())
+    data = datasets.Dataset.from_pandas(data)
     word_counter = Counter()
     char_counter = Counter()
     for example in data:
         word_counter.update(example["reviews"])
         char_counter.update(' '.join(example['reviews']))
-    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()]
+    word_types = ["<unk>"] + [wtype for (wtype, wcount) in word_counter.most_common()][:10000]
     char_types = ["<unk>"] + [ctype for (ctype, ccount) in char_counter.most_common()]
 
     return word_types

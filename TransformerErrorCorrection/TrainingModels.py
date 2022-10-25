@@ -8,41 +8,45 @@ import torch.cuda
 import torch.nn as nn
 import torch.optim as optim
 
+import tqdm
 import os
 from CELWithLevenshteinRegularization import CELWithLevenshteinRegularization
 import CharTransformer, BiLSTMErrorCorrection, EmbeddingTypes, ErrorCreator
 import TextPreprocess
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device='cpu'
 
-
-def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name):
+def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name, num_words):
     prev = 1
     for epoch in range(epochs):
         model.train()
-        for i, (X, y) in enumerate(train_loader):
+        for i, X in tqdm.tqdm(enumerate(train_loader), total=train_loader.sampler.batch_count()):
             optimizer.zero_grad()
-            pred = model(X)
+            X, (corrupts, _), levenshtein = X
 
-            y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in y]
+            pred = model(corrupts).reshape(-1, num_words)
 
-            y = torch.LongTensor(y).to(device)
+            y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in X]
 
-            loss = loss_function(pred, y)
+            y = torch.LongTensor(y).to(device).reshape(-1)
+            if 'transformer' in model_name:
+                loss = loss_function(pred, y, levenshtein)
+            else:
+                loss = loss_function(pred, y)
 
             loss.backward()
 
-            nn.utils.clip_grad_norm_(model.parameters(), 1.)
             optimizer.step()
 
         model.eval()
         with torch.no_grad():
             all_correct = []
             for i, X in enumerate(val_loader):
-                corrupts = [ErrorCreator.corrupt_sentence(example['review']) for example in X]
+                X, (corrupts, corrupted), levenshtein = X
                 pred = model(corrupts)
 
-                y = [[TextPreprocess.ids_word(word) for word in sentance] for sentance in X]
+                y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in X]
                 y = torch.LongTensor(y).to(device)
 
                 pred = torch.argmax(pred, dim=-1)
@@ -53,8 +57,13 @@ def train(model, optimizer, epochs, train_loader, val_loader, loss_function, mod
             all_correct = torch.cat(all_correct)
 
             wer = sum(all_correct) / all_correct.shape[0]
+            print(wer)
             if wer < prev:
-                torch.save(model.state_dict(), f"models/{model_name}.pt")
+                try:
+                    torch.save(model, f"../models/{model_name}.pt")
+                except Exception as e:
+                    print(os.getcwd())
+                    raise e
                 prev = wer
 
     model = torch.load(f'models/{model_name}.pt')
@@ -67,8 +76,8 @@ def train_model(model_type, is_foreground):
     os.chdir('..')
     if is_foreground:
         TextPreprocess.create_dictionary('stanford')
-        print(TextPreprocess.word_type2idx)
         words = TextPreprocess.vocab('foreground')
+        print(TextPreprocess.textdata['char_type2idx'])
         num_words = len(words)
         name = model_type + '_foreground'
         if 'stanford_train_loader.pt' in os.listdir() and 'stanford_val_loader.pt' in os.listdir():
@@ -80,7 +89,6 @@ def train_model(model_type, is_foreground):
             loaders_present = False
     else:
         TextPreprocess.create_dictionary('imdb')
-        print(word_type2idx)
         words = TextPreprocess.vocab('background')
         num_words = len(words)
         name = model_type + '_background'
@@ -95,13 +103,17 @@ def train_model(model_type, is_foreground):
             loaders_present = False
         os.chdir(cwd)
     if model_type.lower() == 'bilstm':
-        embedding = EmbeddingTypes.OuterPosBow(' ', 50)
-        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 198, 50)
-        loss_function = CELWithLevenshteinRegularization(words, 0.01, 1)
-    else:
-        embedding = EmbeddingTypes.OuterPosBow(' ', 16 * 4)
-        model = CharTransformer.ErrorCorrector(embedding, num_words, 16 * 4)
+        embedding = EmbeddingTypes.OuterPosBow(' ', 1980, len(TextPreprocess.textdata['char_type2idx'].keys())).to(
+            device)
+        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 1980, 1500).to(device)
         loss_function = nn.CrossEntropyLoss()
+
+    else:
+        num_chars = len(TextPreprocess.textdata['char_type2idx'].keys())
+        embedding = EmbeddingTypes.OuterPosBow(' ', 16 * 4, num_chars).to(
+            device)
+        model = CharTransformer.ErrorCorrector(embedding, num_words, 16 * 4).to(device)
+        loss_function = CELWithLevenshteinRegularization(words, 0.01, 1, num_chars).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -109,7 +121,7 @@ def train_model(model_type, is_foreground):
         train_loader = torch.load(train_loader)
         val_loader = torch.load(val_loader)
     else:
-        train_loader, _, val_loader = TextPreprocess.create_dataloaders(typ, 128)
+        train_loader, _, val_loader = TextPreprocess.create_dataloaders(typ, 10)
     os.chdir(cwd)
 
     trained_model = train(
@@ -119,11 +131,11 @@ def train_model(model_type, is_foreground):
         train_loader,
         val_loader,
         loss_function,
-        name
+        name, num_words
     )
 
 
 if __name__ == '__main__':
-    for model_type in ('transformer', 'bilstm'):
+    for model_type in reversed(['bilstm', 'transformer']):
         for is_foreground in (True, False):
             train_model(model_type, is_foreground)

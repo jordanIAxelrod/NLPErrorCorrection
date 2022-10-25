@@ -36,9 +36,8 @@ class OuterPosBow(ErrorCorrectionEmbedding):
     def forward(self, sntcs: list) -> torch.Tensor:
         # Remove punctuation
         word_lists = super().forward2(sntcs)
+        max_len = len(max([max(words, key=lambda x: len(x)) for words in word_lists]))
 
-        max_len = max([max(words, key=lambda x: len(x)) for words in word_lists])
-        word_lists = [[word.split for word in word_list] for word_list in word_lists]
         word_list = torch.LongTensor([
             [
                 [ids_char(word[char]) if char < len(

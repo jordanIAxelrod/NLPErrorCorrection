@@ -1,17 +1,16 @@
 import torch
 import torch.nn as nn
 
-from Levenshtein import distance
-
+import TextPreprocess
 
 
 class CELWithLevenshteinRegularization(nn.Module):
-    def __init__(self, words, reg_lambda, num_changes):
+    def __init__(self, words, reg_lambda, num_changes, num_chars):
         """
-
+        Calculates the CE loss with a regularization of levenshtein
         :param dictionary: dictionary of word ids as keys and their possible transformations as keys
         """
-        self.words = words
+        super(CELWithLevenshteinRegularization, self).__init__()
 
         self.reg_lambda = reg_lambda
 
@@ -19,19 +18,13 @@ class CELWithLevenshteinRegularization(nn.Module):
 
         self.CEL = nn.CrossEntropyLoss()
 
-    def forward(self, pred, gold, X):
-        levenshtein = []
-        for batch in range(X.size(0)):
-            b = []
-            for word1 in range(X.size(1)):
-                w1 = []
-                for word2 in self.words:
-                    w1.append(distance(X[batch, word1], word2))
-                b.append(w1)
-            levenshtein.append(b)
+    def forward(self, pred, gold, levenshtein) -> torch.Tensor:
 
-        levenshtein = (torch.Tensor(levenshtein) - self.num_changes).to(pred.device)
+        levenshtein = (levenshtein - self.num_changes)
         levenshtein[levenshtein < 0] = 0
-        regularize = torch.sum(levenshtein * pred * self.reg_lambda)
+        reg_terms = levenshtein.reshape(pred.shape[0], pred.shape[1]) / levenshtein.numel() * pred * self.reg_lambda
+        regularize = torch.sum(reg_terms)
 
         return self.CEL(pred, gold) + regularize
+
+
