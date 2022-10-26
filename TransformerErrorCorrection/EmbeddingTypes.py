@@ -32,18 +32,22 @@ class OuterPosBow(ErrorCorrectionEmbedding):
         )
         self.num_chars = num_chars
         self.dim_add = embed_dim % 3
+        self.relu = nn.ReLU()
 
     def forward(self, sntcs: torch.Tensor) -> torch.Tensor:
 
-        word_lengths = torch.argmax(sntcs, dim=2)
-        ends = torch.gather(sntcs, 2, word_lengths.unsqueeze(2))
-        sntcs = torch.scatter(sntcs, 2, word_lengths.unsqueeze(2), 0)
+        word_lengths = self.relu(torch.argmax(sntcs, dim=2) - 1)
+        ends = torch.gather(sntcs, 2, word_lengths.unsqueeze(2)).squeeze(2)
+
+        sntcs = torch.scatter(sntcs, 2, word_lengths.unsqueeze(2), 0).long()
         sntcs[:, :, -1] = ends
 
-        word_list = F.one_hot(sntcs, num_classes=self.num_chars)[:, :, :, self.num_chars]
+        word_list = F.one_hot(sntcs)[:, :, :, :self.num_chars].float()
         word_list = self.embed(word_list)
         bow = torch.sum(word_list[:, :, 1:-1], dim=2).squeeze(2)
-        X = torch.cat([word_list[:, :, 0], bow, word_list[:, :, -1].unsqueeze(2)], dim=2).squeeze()
+        print(bow.shape)
+        X = torch.cat([word_list[:, :, 0], bow, word_list[:, :, -1]], dim=2).squeeze(2)
+        X = F.pad(X, (self.dim_add, 0))
         return X
 
 

@@ -25,4 +25,6 @@ class ErrorCorrector(nn.Module):
     def forward(self, sntcs: list) -> torch.Tensor:
         X = self.embed(sntcs)
         X = self.transformer(X)
+        if len(X.shape) < 3:
+            print(X)
         return self.head(X)

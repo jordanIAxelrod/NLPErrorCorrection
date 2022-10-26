@@ -16,37 +16,46 @@ import TextPreprocess
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device='cpu'
+prob = .9
+
 
 def train(model, optimizer, epochs, train_loader, val_loader, loss_function, model_name, num_words):
     prev = 1
+    last_weights = None
     for epoch in range(epochs):
         model.train()
-        for i, X in tqdm.tqdm(enumerate(train_loader), total=train_loader.sampler.batch_count()):
+        training_bar = tqdm.tqdm(enumerate(train_loader), total=train_loader.sampler.batch_count())
+        for i, (wordseqs, corrupt) in training_bar:
             optimizer.zero_grad()
-            X, (corrupts, _), levenshtein = X
+            corrupts, _ = TextPreprocess.character_break_down(corrupt[0]), corrupt[1]
+            X = torch.Tensor(TextPreprocess.character_break_down(wordseqs))
+            X, corrupts = X.to(device), corrupts.to(device)
+            if last_weights is not None and not torch.all(torch.eq(model.embed.embed.weight, last_weights)):
+                print('model is updating')
+            pred = model(corrupts).permute(0, 2, 1)
+            y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in wordseqs]
 
-            pred = model(corrupts).reshape(-1, num_words)
-
-            y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in X]
-
-            y = torch.LongTensor(y).to(device).reshape(-1)
+            y = torch.LongTensor(y).to(device)
             if 'transformer' in model_name:
-                loss = loss_function(pred, y, levenshtein)
+                loss = loss_function(pred, y, corrupts)
             else:
                 loss = loss_function(pred, y)
 
             loss.backward()
-
+            training_bar.set_postfix({'Loss': loss.detach().cpu()})
             optimizer.step()
-
+            last_weights = model.embed.embed.weight
         model.eval()
         with torch.no_grad():
             all_correct = []
-            for i, X in enumerate(val_loader):
-                X, (corrupts, corrupted), levenshtein = X
+            for i, (wordseqs, corrupt) in enumerate(val_loader):
+
+                corrupts, _ = torch.Tensor(TextPreprocess.character_break_down(corrupt[0])), corrupt[1]
+                X = torch.Tensor(TextPreprocess.character_break_down(wordseqs))
+                X, corrupts = X.to(device), corrupts.to(device)
                 pred = model(corrupts)
 
-                y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in X]
+                y = [[TextPreprocess.ids_word(word) for word in sentance.split(' ')] for sentance in wordseqs]
                 y = torch.LongTensor(y).to(device)
 
                 pred = torch.argmax(pred, dim=-1)
@@ -103,9 +112,9 @@ def train_model(model_type, is_foreground):
             loaders_present = False
         os.chdir(cwd)
     if model_type.lower() == 'bilstm':
-        embedding = EmbeddingTypes.OuterPosBow(' ', 1980, len(TextPreprocess.textdata['char_type2idx'].keys())).to(
+        embedding = EmbeddingTypes.OuterPosBow(' ', 198, len(TextPreprocess.textdata['char_type2idx'].keys())).to(
             device)
-        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 1980, 1500).to(device)
+        model = BiLSTMErrorCorrection.BiLSTM(embedding, num_words, 198, 50).to(device)
         loss_function = nn.CrossEntropyLoss()
 
     else:
@@ -113,7 +122,7 @@ def train_model(model_type, is_foreground):
         embedding = EmbeddingTypes.OuterPosBow(' ', 16 * 4, num_chars).to(
             device)
         model = CharTransformer.ErrorCorrector(embedding, num_words, 16 * 4).to(device)
-        loss_function = CELWithLevenshteinRegularization(words, 0.01, 1, num_chars).to(device)
+        loss_function = CELWithLevenshteinRegularization(words, 0.0001, 1, num_chars).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -121,7 +130,7 @@ def train_model(model_type, is_foreground):
         train_loader = torch.load(train_loader)
         val_loader = torch.load(val_loader)
     else:
-        train_loader, _, val_loader = TextPreprocess.create_dataloaders(typ, 10)
+        train_loader, _, val_loader = TextPreprocess.create_dataloaders(typ, 200)
     os.chdir(cwd)
 
     trained_model = train(
@@ -136,6 +145,6 @@ def train_model(model_type, is_foreground):
 
 
 if __name__ == '__main__':
-    for model_type in reversed(['bilstm', 'transformer']):
+    for model_type in ['bilstm', 'transformer']:
         for is_foreground in (True, False):
             train_model(model_type, is_foreground)

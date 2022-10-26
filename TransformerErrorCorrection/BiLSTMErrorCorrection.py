@@ -21,9 +21,7 @@ class BiLSTM(nn.Module):
         )
 
         self.head = nn.Sequential(
-            nn.Linear(hidden_dim * 2, num_words // 2),
-            nn.ReLU(),
-            nn.Linear(num_words // 2, num_words),
+            nn.Linear(hidden_dim * 2, num_words),
             nn.Softmax(dim=2)
         )
 
